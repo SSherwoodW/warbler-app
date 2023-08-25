@@ -28,6 +28,9 @@ toolbar = DebugToolbarExtension(app)
 connect_db(app)
 
 
+# def check_user_exists():
+#     # Check if user exists or not (by username), run in user/edit route.
+
 ##############################################################################
 # User signup/login/logout
 
@@ -36,9 +39,11 @@ connect_db(app)
 def add_user_to_g():
     """If we're logged in, add curr user to Flask global."""
 
-    if CURR_USER_KEY in session:
-        g.user = db.session.get(User, CURR_USER_KEY)
-
+    maybe_user_id = session.get(CURR_USER_KEY)
+    if maybe_user_id is not None:
+        g.user = db.session.get(User, maybe_user_id)
+    # if CURR_USER_KEY in session:
+    #     g.user = db.session.get(User, CURR_USER_KEY)
     else:
         g.user = None
 
@@ -115,11 +120,10 @@ def login():
 @app.route('/logout')
 def logout():
     """Handle logout of user."""
-    do_logout();
+    do_logout()
     flash("You've logged out of warbler.")
 
     return redirect('/login')
-    
 
 
 ##############################################################################
@@ -156,6 +160,8 @@ def users_show(user_id):
                 .order_by(Message.timestamp.desc())
                 .limit(100)
                 .all())
+    liked_msg_ids = [msg.id for msg in g.user.likes]
+
     return render_template('users/show.html', user=user, messages=messages)
 
 
@@ -212,15 +218,16 @@ def stop_following(follow_id):
 
     return redirect(f"/users/{g.user.id}/following")
 
+
 @app.route('/users/<int:user_id>/likes', methods=["GET", "POST"])
 def show_likes(user_id):
     if not g.user:
         flash("Access unauthorized.", "danger")
         return redirect("/")
-    
 
     user = User.query.get_or_404(user_id)
     return render_template('users/likes.html', user=user, likes=user.likes)
+
 
 @app.route('/messages/<int:message_id>/like', methods=['POST'])
 def add_like(message_id):
@@ -245,9 +252,11 @@ def add_like(message_id):
 
     return redirect("/")
 
+
 @app.route('/messages/<int:message_id>/like>', methods=["POST"])
 def remove_like(message_id):
     """"""
+
 
 @app.route('/users/<int:user_id>/profile', methods=["GET", "POST"])
 def edit_user(user_id):
@@ -256,14 +265,14 @@ def edit_user(user_id):
     if not g.user:
         flash("Access unauthorized.", "danger")
         return redirect("/")
-    
+
     user = g.user
     form = UserEditForm()
 
     if form.validate_on_submit():
+
         if User.authenticate(user.username, form.password.data):
             user.username = form.username.data
-            user.email = form.email.data
             user.image_url = form.image_url.data or "/static/images/default-pic.png"
             user.header_image_url = form.header_image_url.data or "/static/images/warbler-hero.jpg"
             user.bio = form.bio.data
@@ -273,8 +282,7 @@ def edit_user(user_id):
 
         flash("Wrong password, please try again.", 'danger')
 
-
-    return render_template('users/edit.html', user=user, form=form)
+    return render_template('users/edit.html', user=user, email=user.email, form=form)
 
 
 @app.route('/users/delete', methods=["POST"])
@@ -284,6 +292,10 @@ def delete_user():
     if not g.user:
         flash("Access unauthorized.", "danger")
         return redirect("/")
+
+    user_messages = Message.query.filter_by(user_id=g.user.id).all()
+    for msg in user_messages:
+        db.session.delete(msg)
 
     do_logout()
 
@@ -356,14 +368,23 @@ def homepage():
 
     # if message.user IN user.following()
     if g.user:
-        following_ids = [following.id for following in g.user.following] + [g.user.id]
-        messages = (Message
-                    .query
-                    .filter(Message.user_id.in_(following_ids))
-                    .order_by(Message.timestamp.desc())
-                    .limit(100)
-                    .all())
-        liked_msg_ids = [msg.id for msg in g.user.likes]
+        if len(g.user.following) == 0:
+            messages = (Message
+                        .query
+                        .order_by(Message.timestamp.desc())
+                        .limit(100)
+                        .all())
+            liked_msg_ids = [msg.id for msg in g.user.likes]
+        else:
+            following_ids = [
+                following.id for following in g.user.following] + [g.user.id]
+            messages = (Message
+                        .query
+                        .filter(Message.user_id.in_(following_ids))
+                        .order_by(Message.timestamp.desc())
+                        .limit(100)
+                        .all())
+            liked_msg_ids = [msg.id for msg in g.user.likes]
 
         return render_template('home.html', messages=messages, likes=liked_msg_ids)
 
